@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyDVUZfVUT2z_3pEPeYlN1iu65AH6znKRsg",
+    authDomain: "blues-a2af7.firebaseapp.com",
+    projectId: "blues-a2af7",
+    storageBucket: "blues-a2af7.firebasestorage.app",
+    messagingSenderId: "200739025187",
+    appId: "1:200739025187:web:d3eae984806b946def1c96",
+    measurementId: "G-FLZBFVM9KQ"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+
+  // === Fonction pour récupérer tous les articles depuis Firestore ===
+  async function fetchArticles() {
+    const snapshot = await db.collection('articles').orderBy('date', 'desc').get();
+    articles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    renderCategories();
+    renderRecentArticles();
+    renderHome();
+  }
+
+  // === Fonction pour ajouter un article ===
+  async function addArticle(article) {
+    const docRef = await db.collection('articles').add(article);
+    article.id = docRef.id;
+    articles.push(article);
+  }
+
+  // === Fonction pour récupérer les commentaires d'un article ===
+  async function fetchComments(articleId) {
+    const snapshot = await db.collection('articles').doc(articleId).collection('comments').orderBy('date', 'asc').get();
+    return snapshot.docs.map(doc => doc.data());
+  }
+
+  // === Fonction pour ajouter un commentaire ===
+  async function addComment(articleId, comment) {
+    await db.collection('articles').doc(articleId).collection('comments').add(comment);
+  }
+
+  // === Exemple d'adaptation dans renderArticle pour charger commentaires depuis Firestore ===
+  async function renderArticle(id) {
+    const article = articles.find(a => a.id === id);
+    if (!article) {
+      alert("Article introuvable.");
+      renderHome();
+      return;
+    }
+    contentEl.innerHTML = `
+      <article>
+        <h2>${escapeHtml(article.title)}</h2>
+        <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span> — Catégorie: ${escapeHtml(article.category)}</div>
+        <p style="white-space: pre-wrap;">${escapeHtml(article.content)}</p>
+      </article>
+    `;
+
+    // Chargement commentaires depuis Firestore
+    const comments = await fetchComments(id);
+
+    const commentsSection = document.createElement('section');
+    commentsSection.id = 'comments';
+    commentsSection.setAttribute('aria-label', 'Section des commentaires');
+
+    const h3 = document.createElement('h3');
+    h3.textContent = `Commentaires (${comments.length})`;
+    commentsSection.appendChild(h3);
+
+    if (comments.length === 0) {
+      const p = document.createElement('p');
+      p.textContent = 'Aucun commentaire pour le moment.';
+      commentsSection.appendChild(p);
+    } else {
+      comments.forEach(c => {
+        const cDiv = document.createElement('div');
+        cDiv.className = 'comment';
+        cDiv.innerHTML = `<strong>${escapeHtml(c.name)}</strong> <time datetime="${c.date}">${formatDateTime(c.date)}</time><br>${escapeHtml(c.text)}`;
+        commentsSection.appendChild(cDiv);
+      });
+    }
+
+    // Formulaire ajout commentaire
+    const form = document.createElement('form');
+    form.setAttribute('aria-label', 'Formulaire d\'ajout de commentaire');
+    form.innerHTML = `
+      <label for="comment-name">Nom :</label>
+      <input type="text" id="comment-name" name="name" required minlength="2" maxlength="30" placeholder="Votre nom" />
+      <label for="comment-text">Commentaire :</label>
+      <textarea id="comment-text" name="text" required minlength="3" maxlength="500" placeholder="Votre commentaire"></textarea>
+      <br><br>
+      <button class="primary" type="submit">Ajouter un commentaire</button>
+    `;
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const name = form.name.value.trim();
+      const text = form.text.value.trim();
+      if (name.length < 2 || text.length < 3) {
+        alert('Veuillez remplir correctement le formulaire.');
+        return;
+      }
+      const newComment = { name, text, date: new Date().toISOString() };
+      await addComment(id, newComment);
+      // Rafraîchir affichage commentaires
+      renderArticle(id);
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    commentsSection.appendChild(form);
+
+    contentEl.appendChild(commentsSection);
+  }
+
+  // === Adaptation du formulaire d'ajout d'article pour enregistrer sur Firestore ===
+  function renderNewArticle() {
+    contentEl.innerHTML = `
+      <h2>Publier un nouvel article</h2>
+      <form id="article-form" aria-label="Formulaire de publication d'article">
+        <label for="title">Titre :</label>
+        <input type="text" id="title" name="title" required minlength="3" maxlength="100" placeholder="Titre de l'article" />
+        <label for="category">Catégorie :</label>
+        <select id="category" name="category" required>
+          <option value="" disabled selected>Choisissez une catégorie</option>
+          <option>Général</option>
+          <option>Éducation</option>
+          <option>Technologie</option>
+          <option>Santé</option>
+          <option>Culture</option>
+          <option>Politique</option>
+        </select>
+        <label for="author">Auteur :</label>
+        <input type="text" id="author" name="author" required minlength="2" maxlength="50" placeholder="Votre nom ou pseudo" />
+        <label for="content-textarea">Contenu :</label>
+        <textarea id="content-textarea" name="content" required minlength="10" maxlength="5000" placeholder="Écrivez votre article ici..."></textarea>
+        <br><br>
+        <button class="primary" type="submit">Publier</button>
+      </form>
+    `;
+    const form = document.getElementById('article-form');
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const title = form.title.value.trim();
+      const category = form.category.value;
+      const author = form.author.value.trim();
+      const content = form.content.value.trim();
+      if (!title || !category || !author || !content) {
+        alert('Merci de remplir tous les champs.');
+        return;
+      }
+      const newArticle = {
+        title,
+        category,
+        author,
+        content,
+        date: new Date().toISOString()
+      };
+      await addArticle(newArticle);
+      alert('Article publié avec succès !');
+      await fetchArticles(); // mise à jour globale
+      searchInput.value = '';
+    });
+  }
+
+  // === Au démarrage, on charge les articles depuis Firestore ===
+  fetchArticles();
+
+</script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blues - Le Blog d'Actualités</title>
+  <style>
+    /* === Reset & base === */
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0; font-family: 'Georgia', serif;
+      background: linear-gradient(135deg, #f0f5fb, #d9e6f9);
+      color: #102a43;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-size: 16px;
+    }
+    a {
+      color: #1c66d0;
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+    a:hover, a:focus {
+      color: #094a96;
+      outline: none;
+    }
+
+    /* === Conteneur principal === */
+    #app {
+      max-width: 1200px;
+      margin: 0 auto;
+      flex-grow: 1;
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      gap: 25px;
+      padding: 30px;
+    }
+
+    /* === Sidebar === */
+    aside.sidebar {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 6px 15px rgba(28, 102, 208, 0.15);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 25px;
+      font-family: 'Arial', sans-serif;
+      user-select: none;
+    }
+    aside.sidebar h2 {
+      margin: 0 0 15px;
+      color: #0b2240;
+      font-weight: 700;
+      font-size: 1.2rem;
+      border-bottom: 2px solid #1c66d0;
+      padding-bottom: 6px;
+    }
+    aside.sidebar section {
+      font-size: 0.9rem;
+      color: #2f4a71;
+    }
+    aside.sidebar section ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 8px 0 0;
+    }
+    aside.sidebar section ul li {
+      margin-bottom: 10px;
+      cursor: pointer;
+      color: #1c66d0;
+      transition: color 0.25s;
+    }
+    aside.sidebar section ul li:hover {
+      color: #094a96;
+    }
+    aside.sidebar input[type="search"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1.5px solid #1c66d0;
+      font-size: 1rem;
+      outline-offset: 2px;
+      transition: border-color 0.3s;
+    }
+    aside.sidebar input[type="search"]:focus {
+      border-color: #094a96;
+    }
+
+    /* === Header === */
+    header.header {
+      grid-column: 1 / -1;
+      background: #1c66d0;
+      padding: 25px 30px;
+      color: white;
+      font-family: 'Georgia', serif;
+      font-weight: 700;
+      font-size: 2.2rem;
+      border-radius: 0 0 12px 12px;
+      box-shadow: 0 6px 12px rgba(28, 102, 208, 0.3);
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    header.header nav {
+      display: flex;
+      gap: 18px;
+      font-family: 'Arial', sans-serif;
+      font-weight: 600;
+      font-size: 1rem;
+      margin-top: 8px;
+    }
+    header.header nav a {
+      color: white;
+      padding: 8px 14px;
+      border-radius: 6px;
+      background: #255fc3;
+      box-shadow: 0 2px 6px rgba(0, 75, 160, 0.25);
+      transition: background 0.3s;
+    }
+    header.header nav a:hover, header.header nav a:focus {
+      background: #094a96;
+      outline: none;
+    }
+
+    /* === Section principale === */
+    main.content {
+      background: white;
+      border-radius: 12px;
+      padding: 30px 35px;
+      box-shadow: 0 6px 20px rgba(28, 102, 208, 0.15);
+      font-family: 'Arial', sans-serif;
+      color: #1a2f52;
+      overflow-wrap: break-word;
+      min-height: 400px;
+    }
+    main.content h2 {
+      font-family: 'Georgia', serif;
+      font-weight: 700;
+      font-size: 2rem;
+      color: #0b2240;
+      margin-top: 0;
+      margin-bottom: 15px;
+      user-select: text;
+    }
+    main.content p {
+      font-size: 1.05rem;
+      margin-bottom: 1.3rem;
+      line-height: 1.5;
+      user-select: text;
+    }
+    main.content article {
+      margin-bottom: 35px;
+      border-bottom: 1px solid #d6e3fc;
+      padding-bottom: 25px;
+    }
+    main.content article:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    main.content article h3 {
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #1c66d0;
+      cursor: pointer;
+      transition: color 0.3s;
+    }
+    main.content article h3:hover {
+      color: #094a96;
+      text-decoration: underline;
+    }
+    main.content .meta {
+      font-size: 0.85rem;
+      color: #5a6b8a;
+      margin-bottom: 12px;
+      font-style: italic;
+    }
+    main.content .excerpt {
+      font-size: 1rem;
+      color: #344f8f;
+      user-select: text;
+    }
+    main.content .author {
+      font-weight: 700;
+      color: #0b2240;
+      font-style: normal;
+    }
+
+    /* === Boutons === */
+    button.primary {
+      background: #1c66d0;
+      border: none;
+      padding: 12px 25px;
+      font-weight: 700;
+      font-size: 1rem;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s ease;
+      user-select: none;
+    }
+    button.primary:hover, button.primary:focus {
+      background: #094a96;
+      outline: none;
+    }
+
+    /* === Formulaires === */
+    form label {
+      font-weight: 700;
+      display: block;
+      margin: 15px 0 6px 0;
+      user-select: none;
+    }
+    form input[type="text"], form textarea, form select {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 1rem;
+      border: 1.8px solid #1c66d0;
+      border-radius: 8px;
+      font-family: 'Arial', sans-serif;
+      color: #0b2240;
+      resize: vertical;
+      transition: border-color 0.3s ease;
+    }
+    form input[type="text"]:focus, form textarea:focus, form select:focus {
+      border-color: #094a96;
+      outline: none;
+    }
+    form textarea {
+      min-height: 140px;
+    }
+    form .small-info {
+      font-size: 0.8rem;
+      color: #496ea6;
+      margin-top: 3px;
+    }
+
+    /* === Commentaires === */
+    #comments {
+      margin-top: 35px;
+      user-select: none;
+    }
+    #comments h3 {
+      border-bottom: 2px solid #1c66d0;
+      padding-bottom: 6px;
+      margin-bottom: 20px;
+      font-family: 'Georgia', serif;
+      font-weight: 700;
+      color: #0b2240;
+      user-select: text;
+    }
+    .comment {
+      background: #f0f6fc;
+      border-left: 5px solid #1c66d0;
+      border-radius: 10px;
+      padding: 15px 20px;
+      margin-bottom: 20px;
+      font-size: 0.9rem;
+      color: #1a2f52;
+      user-select: text;
+      word-wrap: break-word;
+    }
+    .comment strong {
+      color: #1c66d0;
+      font-weight: 700;
+    }
+    .comment time {
+      font-style: italic;
+      font-size: 0.8rem;
+      color: #496ea6;
+      margin-left: 10px;
+    }
+
+    /* === Footer === */
+    footer.footer {
+      background: #1c66d0;
+      color: white;
+      padding: 25px 30px;
+      font-family: 'Arial', sans-serif;
+      text-align: center;
+      font-weight: 600;
+      font-size: 0.95rem;
+      user-select: none;
+      margin-top: auto;
+      border-radius: 12px 12px 0 0;
+      box-shadow: 0 -6px 15px rgba(28, 102, 208, 0.3);
+    }
+
+    /* === Responsive === */
+    @media(max-width: 900px) {
+      #app {
+        grid-template-columns: 1fr;
+        padding: 20px 15px;
+      }
+      aside.sidebar {
+        flex-direction: row;
+        justify-content: space-around;
+        padding: 15px 10px;
+        border-radius: 10px;
+        box-shadow: none;
+        margin-bottom: 20px;
+      }
+      aside.sidebar section {
+        margin: 0 10px;
+      }
+    }
+    @media(max-width: 550px) {
+      header.header {
+        font-size: 1.8rem;
+        flex-direction: column;
+        gap: 10px;
+      }
+      header.header nav {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header" role="banner" aria-label="En-tête du site Blues">
+    <div>Blues</div>
+    <nav role="navigation" aria-label="Menu principal">
+      <a href="#" id="nav-home" tabindex="0">Accueil</a>
+      <a href="#" id="nav-new-article" tabindex="0">Nouvel article</a>
+      <a href="#" id="nav-about" tabindex="0">À propos</a>
+      <a href="#" id="nav-contact" tabindex="0">Contact</a>
+    </nav>
+  </header>
+
+  <div id="app" role="main">
+    <aside class="sidebar" aria-label="Barre latérale de navigation">
+      <section aria-labelledby="search-title">
+        <h2 id="search-title">Recherche</h2>
+        <input type="search" id="search-input" placeholder="Rechercher un article..." aria-describedby="search-desc" />
+        <div id="search-desc" class="small-info">Tapez un mot-clé</div>
+      </section>
+
+      <section aria-labelledby="categories-title">
+        <h2 id="categories-title">Catégories</h2>
+        <ul id="categories-list" tabindex="0" aria-live="polite">
+          <!-- Categories insérées ici -->
+        </ul>
+      </section>
+
+      <section aria-labelledby="recent-title">
+        <h2 id="recent-title">Articles récents</h2>
+        <ul id="recent-list" tabindex="0" aria-live="polite">
+          <!-- Articles récents -->
+        </ul>
+      </section>
+    </aside>
+
+    <main class="content" id="content" tabindex="0" aria-live="polite" aria-atomic="true">
+      <!-- Contenu principal injecté ici -->
+    </main>
+  </div>
+
+  <footer class="footer" role="contentinfo">
+    <p>© 2025 Blues — Blog d'actualités &amp; savoir</p>
+    <p>
+      <a href="#" id="footer-legal">Mentions légales</a> |
+      <a href="#" id="footer-privacy">Politique de confidentialité</a>
+    </p>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // === Données initiales ===
+    const initialArticles = [
+      {
+        id: '1',
+        title: 'Bienvenue sur Blues, votre blog d’actualité',
+        content: "Ce blog vous propose des articles approfondis sur divers sujets d'actualité et de savoir, dans un style clair et professionnel.",
+        date: '2025-06-24T10:00:00Z',
+        author: 'Admin',
+        category: 'Général'
+      },
+      {
+        id: '2',
+        title: 'L’importance de l’éducation dans la société moderne',
+        content: `L'éducation est la clé du progrès individuel et collectif. Elle permet d'acquérir des connaissances, développer l'esprit critique et préparer l'avenir.\n\nChez Blues, nous valorisons ce savoir comme fondement de tout développement.`,
+        date: '2025-06-23T14:00:00Z',
+        author: 'Admin',
+        category: 'Éducation'
+      },
+      {
+        id: '3',
+        title: 'Les nouvelles technologies au service de l’apprentissage',
+        content: `Le numérique transforme l’éducation. Des plateformes en ligne aux outils interactifs, l’apprentissage devient plus accessible et personnalisé.\n\nDécouvrez comment les innovations facilitent la transmission du savoir.`,
+        date: '2025-06-22T16:30:00Z',
+        author: 'Admin',
+        category: 'Technologie'
+      }
+    ];
+
+    // === Stockage local ===
+    function saveData(key, data) {
+      localStorage.setItem(key, JSON.stringify(data));
+    }
+    function loadData(key) {
+      const json = localStorage.getItem(key);
+      if (!json) return null;
+      try {
+        return JSON.parse(json);
+      } catch {
+        return null;
+      }
+    }
+
+    // === Articles ===
+    let articles = loadData('blues_articles') || initialArticles.slice();
+
+    // === Commentaires stockés par article id ===
+    function loadComments(articleId) {
+      return loadData('blues_comments_' + articleId) || [];
+    }
+    function saveComments(articleId, comments) {
+      saveData('blues_comments_' + articleId, comments);
+    }
+
+    // === Catégories dynamiques ===
+    function getCategories() {
+      const cats = new Set(articles.map(a => a.category));
+      return Array.from(cats).sort();
+    }
+
+    // === Recherche articles (titre, contenu) ===
+    function searchArticles(keyword) {
+      const lower = keyword.toLowerCase();
+      return articles.filter(a => a.title.toLowerCase().includes(lower) || a.content.toLowerCase().includes(lower));
+    }
+
+    // === Utilitaires ===
+    function formatDate(dateStr) {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('fr-FR', {year:'numeric', month:'long', day:'numeric'});
+    }
+    function formatDateTime(dateStr) {
+      const d = new Date(dateStr);
+      return d.toLocaleString('fr-FR', {year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    }
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    function excerpt(text, max = 220) {
+      if (text.length <= max) return text;
+      return text.slice(0, max) + '…';
+    }
+
+    // === Navigation ===
+    const contentEl = document.getElementById('content');
+    const categoriesListEl = document.getElementById('categories-list');
+    const recentListEl = document.getElementById('recent-list');
+    const searchInput = document.getElementById('search-input');
+
+    // Rendu liste catégories
+    function renderCategories() {
+      const cats = getCategories();
+      categoriesListEl.innerHTML = '';
+      cats.forEach(cat => {
+        const li = document.createElement('li');
+        li.textContent = cat;
+        li.tabIndex = 0;
+        li.role = "button";
+        li.addEventListener('click', () => renderArticlesByCategory(cat));
+        li.addEventListener('keydown', e => { if(e.key==='Enter') renderArticlesByCategory(cat); });
+        categoriesListEl.appendChild(li);
+      });
+    }
+
+    // Rendu articles récents (5 derniers)
+    function renderRecentArticles() {
+      recentListEl.innerHTML = '';
+      const sorted = [...articles].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0,5);
+      sorted.forEach(article => {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = article.title;
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          renderArticle(article.id);
+        });
+        li.appendChild(a);
+        recentListEl.appendChild(li);
+      });
+    }
+
+    // Rendu liste articles accueil
+    function renderHome() {
+      contentEl.innerHTML = '<h2>Articles récents</h2>';
+      if (articles.length === 0) {
+        contentEl.innerHTML += '<p>Aucun article publié pour le moment.</p>';
+        return;
+        return;
+    }
+    // Trier par date décroissante
+    const sorted = [...articles].sort((a,b) => new Date(b.date) - new Date(a.date));
+    sorted.forEach(article => {
+      const art = document.createElement('article');
+      art.innerHTML = `
+        <h3 tabindex="0" role="link" style="cursor:pointer;color:#1c66d0;">${escapeHtml(article.title)}</h3>
+        <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span> — Catégorie: ${escapeHtml(article.category)}</div>
+        <p class="excerpt">${escapeHtml(excerpt(article.content))}</p>
+      `;
+      art.querySelector('h3').addEventListener('click', () => renderArticle(article.id));
+      art.querySelector('h3').addEventListener('keydown', e => { if(e.key==='Enter') renderArticle(article.id); });
+      contentEl.appendChild(art);
+    });
+  }
+
+  // Rendu articles par catégorie
+  function renderArticlesByCategory(category) {
+    const filtered = articles.filter(a => a.category === category);
+    contentEl.innerHTML = `<h2>Catégorie : ${escapeHtml(category)}</h2>`;
+    if (filtered.length === 0) {
+      contentEl.innerHTML += '<p>Aucun article dans cette catégorie.</p>';
+      return;
+    }
+    filtered.forEach(article => {
+      const art = document.createElement('article');
+      art.innerHTML = `
+        <h3 tabindex="0" role="link" style="cursor:pointer;color:#1c66d0;">${escapeHtml(article.title)}</h3>
+        <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span></div>
+        <p class="excerpt">${escapeHtml(excerpt(article.content))}</p>
+      `;
+      art.querySelector('h3').addEventListener('click', () => renderArticle(article.id));
+      art.querySelector('h3').addEventListener('keydown', e => { if(e.key==='Enter') renderArticle(article.id); });
+      contentEl.appendChild(art);
+    });
+  }
+
+  // Rendu article complet avec commentaires
+  function renderArticle(id) {
+    const article = articles.find(a => a.id === id);
+    if (!article) {
+      alert("Article introuvable.");
+      renderHome();
+      return;
+    }
+    contentEl.innerHTML = `
+      <article>
+        <h2>${escapeHtml(article.title)}</h2>
+        <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span> — Catégorie: ${escapeHtml(article.category)}</div>
+        <p style="white-space: pre-wrap;">${escapeHtml(article.content)}</p>
+      </article>
+    `;
+
+    // Commentaires
+    const comments = loadComments(id);
+
+    const commentsSection = document.createElement('section');
+    commentsSection.id = 'comments';
+    commentsSection.setAttribute('aria-label', 'Section des commentaires');
+
+    const h3 = document.createElement('h3');
+    h3.textContent = `Commentaires (${comments.length})`;
+    commentsSection.appendChild(h3);
+
+    if (comments.length === 0) {
+      const p = document.createElement('p');
+      p.textContent = 'Aucun commentaire pour le moment.';
+      commentsSection.appendChild(p);
+    } else {
+      comments.forEach(c => {
+        const cDiv = document.createElement('div');
+        cDiv.className = 'comment';
+        cDiv.innerHTML = `<strong>${escapeHtml(c.name)}</strong> <time datetime="${c.date}">${formatDateTime(c.date)}</time><br>${escapeHtml(c.text)}`;
+        commentsSection.appendChild(cDiv);
+      });
+    }
+
+    // Formulaire ajout commentaire
+    const form = document.createElement('form');
+    form.setAttribute('aria-label', 'Formulaire d\'ajout de commentaire');
+    form.innerHTML = `
+      <label for="comment-name">Nom :</label>
+      <input type="text" id="comment-name" name="name" required minlength="2" maxlength="30" placeholder="Votre nom" />
+      <label for="comment-text">Commentaire :</label>
+      <textarea id="comment-text" name="text" required minlength="3" maxlength="500" placeholder="Votre commentaire"></textarea>
+      <br><br>
+      <button class="primary" type="submit">Ajouter un commentaire</button>
+    `;
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const name = form.name.value.trim();
+      const text = form.text.value.trim();
+      if (name.length < 2 || text.length < 3) {
+        alert('Veuillez remplir correctement le formulaire.');
+        return;
+      }
+      comments.push({name, text, date: new Date().toISOString()});
+      saveComments(id, comments);
+      renderArticle(id);
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    commentsSection.appendChild(form);
+
+    contentEl.appendChild(commentsSection);
+  }
+
+  // Rendu page nouveau article avec éditeur simple
+  function renderNewArticle() {
+    contentEl.innerHTML = `
+      <h2>Publier un nouvel article</h2>
+      <form id="article-form" aria-label="Formulaire de publication d'article">
+        <label for="title">Titre :</label>
+        <input type="text" id="title" name="title" required minlength="3" maxlength="100" placeholder="Titre de l'article" />
+        <label for="category">Catégorie :</label>
+        <select id="category" name="category" required>
+          <option value="" disabled selected>Choisissez une catégorie</option>
+          <option>Général</option>
+          <option>Éducation</option>
+          <option>Technologie</option>
+          <option>Santé</option>
+          <option>Culture</option>
+          <option>Politique</option>
+        </select>
+        <label for="author">Auteur :</label>
+        <input type="text" id="author" name="author" required minlength="2" maxlength="50" placeholder="Votre nom ou pseudo" />
+        <label for="content-textarea">Contenu :</label>
+        <textarea id="content-textarea" name="content" required minlength="10" maxlength="5000" placeholder="Écrivez votre article ici..."></textarea>
+        <br><br>
+        <button class="primary" type="submit">Publier</button>
+      </form>
+    `;
+    const form = document.getElementById('article-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const title = form.title.value.trim();
+      const category = form.category.value;
+      const author = form.author.value.trim();
+      const content = form.content.value.trim();
+      if (!title || !category || !author || !content) {
+        alert('Merci de remplir tous les champs.');
+        return;
+      }
+      const newArticle = {
+        id: Date.now().toString(),
+        title,
+        category,
+        author,
+        content,
+        date: new Date().toISOString()
+      };
+      articles.push(newArticle);
+      saveData('blues_articles', articles);
+      alert('Article publié avec succès !');
+      renderHome();
+      searchInput.value = '';
+    });
+  }
+
+  // Rendu page À propos
+  function renderAbout() {
+    contentEl.innerHTML = `
+      <h2>À propos de Blues</h2>
+      <p>Blues est un blog d'actualités et de savoir, dédié à vous fournir des articles de qualité, rédigés dans un style clair et professionnel.</p>
+      <p>Notre objectif est de promouvoir le savoir et l'information dans un univers visuel apaisant aux tons bleus.</p>
+      <p>Site réalisé en pur JavaScript, HTML et CSS, sans backend, avec stockage local.</p>
+    `;
+  }
+
+  // Rendu page Contact (simple)
+  function renderContact() {
+    contentEl.innerHTML = `
+      <h2>Contactez-nous</h2>
+      <p>Pour toute question ou suggestion, vous pouvez nous écrire via ce formulaire :</p>
+      <form id="contact-form" aria-label="Formulaire de contact">
+        <label for="contact-name">Nom :</label>
+        <input type="text" id="contact-name" name="name" required minlength="2" maxlength="50" placeholder="Votre nom" />
+        <label for="contact-email">Email :</label>
+        <input type="email" id="contact-email" name="email" required placeholder="Votre email" />
+        <label for="contact-message">Message :</label>
+        <textarea id="contact-message" name="message" required minlength="5" maxlength="1000" placeholder="Votre message"></textarea>
+        <br><br>
+        <button class="primary" type="submit">Envoyer</button>
+      </form>
+      <div id="contact-response" role="alert" aria-live="polite" style="margin-top:1rem; color:#0b2240; font-weight:600;"></div>
+    `;
+    const form = document.getElementById('contact-form');
+    const response = document.getElementById('contact-response');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const name = form.name.value.trim();
+      const email = form.email.value.trim();
+      const message = form.message.value.trim();
+      if (!name || !email || !message) {
+        response.textContent = 'Merci de remplir tous les champs.';
+        return;
+      }
+      // Ici on simule un envoi (pas de backend)
+      response.textContent = 'Merci pour votre message, nous vous répondrons rapidement.';
+      form.reset();
+    });
+  }
+
+  // Rendu mentions légales + politique (simples)
+  function renderLegal() {
+    contentEl.innerHTML = `
+      <h2>Mentions légales</h2>
+      <p>Ce site est un projet fictif créé par l'utilisateur. Aucun contenu n'est publié officiellement.</p>
+      <p>Tous droits réservés © 2025 Blues.</p>
+    `;
+  }
+  function renderPrivacy() {
+    contentEl.innerHTML = `
+      <h2>Politique de confidentialité</h2>
+      <p>Ce site n'utilise pas de cookies ni ne collecte de données personnelles.</p>
+      <p>Les données saisies dans les commentaires et formulaires sont stockées localement dans votre navigateur.</p>
+    `;
+  }
+
+  // Recherche dynamique
+  searchInput.addEventListener('input', e => {
+    const val = e.target.value.trim();
+    if (val.length < 2) {
+      renderHome();
+      return;
+    }
+    const results = searchArticles(val);
+    if (results.length === 0) {
+      contentEl.innerHTML = `<h2>Recherche : "${escapeHtml(val)}"</h2><p>Aucun article trouvé.</p>`;
+      return;
+    }
+    contentEl.innerHTML = `<h2>Résultats pour : "${escapeHtml(val)}"</h2>`;
+    results.forEach(article => {
+      const art = document.createElement('article');
+      art.innerHTML = `
+        <h3 tabindex="0" role="link" style="cursor:pointer;color:#1c66d0;">${escapeHtml(article.title)}</h3>
+        <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span></div>
+        <p class="excerpt">${escapeHtml(excerpt(article.content))}</p>
+      `;
+      art.querySelector('h3').addEventListener('click', () => renderArticle(article.id));
+      art.querySelector('h3').addEventListener('keydown', e => { if(e.key==='Enter') renderArticle(article.id); });
+      contentEl.appendChild(art);
+    });
+  });
+
+  // Gestion liens header
+  document.getElementById('nav-home').addEventListener('click', e => {
+    e.preventDefault();
+    searchInput.value = '';
+    renderHome();
+  });
+  document.getElementById('nav-new-article').addEventListener('click', e => {
+    e.preventDefault();
+    renderNewArticle();
+  });
+  document.getElementById('nav-about').addEventListener('click', e => {
+    e.preventDefault();
+    renderAbout();
+  });
+  document.getElementById('nav-contact').addEventListener('click', e => {
+    e.preventDefault();
+    renderContact();
+  });
+
+  // Footer liens
+  document.getElementById('footer-legal').addEventListener('click', e => {
+    e.preventDefault();
+    renderLegal();
+  });
+  document.getElementById('footer-privacy').addEventListener('click', e => {
+    e.preventDefault();
+    renderPrivacy();
+  });
+
+  // Initialisation
+  renderCategories();
+  renderRecentArticles();
+  renderHome();
+
+  // Focus content au chargement (accessibilité)
+  contentEl.focus();
+
+  // === Fin script ===
+  </script>
+</body>
+</html>
