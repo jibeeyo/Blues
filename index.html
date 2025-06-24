@@ -25,160 +25,17 @@
   const analytics = getAnalytics(app);
 </script>
 
-  // === Fonction pour récupérer tous les articles depuis Firestore ===
-  async function fetchArticles() {
-    const snapshot = await db.collection('articles').orderBy('date', 'desc').get();
-    articles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    renderCategories();
-    renderRecentArticles();
-    renderHome();
-  }
 
-  // === Fonction pour ajouter un article ===
-  async function addArticle(article) {
-    const docRef = await db.collection('articles').add(article);
-    article.id = docRef.id;
-    articles.push(article);
-  }
-
-  // === Fonction pour récupérer les commentaires d'un article ===
-  async function fetchComments(articleId) {
-    const snapshot = await db.collection('articles').doc(articleId).collection('comments').orderBy('date', 'asc').get();
-    return snapshot.docs.map(doc => doc.data());
-  }
-
-  // === Fonction pour ajouter un commentaire ===
-  async function addComment(articleId, comment) {
-    await db.collection('articles').doc(articleId).collection('comments').add(comment);
-  }
-
-  // === Exemple d'adaptation dans renderArticle pour charger commentaires depuis Firestore ===
-  async function renderArticle(id) {
-    const article = articles.find(a => a.id === id);
-    if (!article) {
-      alert("Article introuvable.");
-      renderHome();
-      return;
-    }
-    contentEl.innerHTML = `
       <article>
         <h2>${escapeHtml(article.title)}</h2>
         <div class="meta">Publié le ${formatDate(article.date)} — <span class="author">${escapeHtml(article.author)}</span> — Catégorie: ${escapeHtml(article.category)}</div>
         <p style="white-space: pre-wrap;">${escapeHtml(article.content)}</p>
       </article>
-    `;
-
-    // Chargement commentaires depuis Firestore
-    const comments = await fetchComments(id);
-
-    const commentsSection = document.createElement('section');
-    commentsSection.id = 'comments';
-    commentsSection.setAttribute('aria-label', 'Section des commentaires');
-
-    const h3 = document.createElement('h3');
-    h3.textContent = `Commentaires (${comments.length})`;
-    commentsSection.appendChild(h3);
-
-    if (comments.length === 0) {
-      const p = document.createElement('p');
-      p.textContent = 'Aucun commentaire pour le moment.';
-      commentsSection.appendChild(p);
-    } else {
-      comments.forEach(c => {
-        const cDiv = document.createElement('div');
-        cDiv.className = 'comment';
-        cDiv.innerHTML = `<strong>${escapeHtml(c.name)}</strong> <time datetime="${c.date}">${formatDateTime(c.date)}</time><br>${escapeHtml(c.text)}`;
-        commentsSection.appendChild(cDiv);
-      });
-    }
-
-    // Formulaire ajout commentaire
-    const form = document.createElement('form');
-    form.setAttribute('aria-label', 'Formulaire d\'ajout de commentaire');
-    form.innerHTML = `
-      <label for="comment-name">Nom :</label>
-      <input type="text" id="comment-name" name="name" required minlength="2" maxlength="30" placeholder="Votre nom" />
-      <label for="comment-text">Commentaire :</label>
-      <textarea id="comment-text" name="text" required minlength="3" maxlength="500" placeholder="Votre commentaire"></textarea>
-      <br><br>
-      <button class="primary" type="submit">Ajouter un commentaire</button>
-    `;
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const name = form.name.value.trim();
-      const text = form.text.value.trim();
-      if (name.length < 2 || text.length < 3) {
-        alert('Veuillez remplir correctement le formulaire.');
-        return;
-      }
-      const newComment = { name, text, date: new Date().toISOString() };
-      await addComment(id, newComment);
-      // Rafraîchir affichage commentaires
-      renderArticle(id);
-      window.scrollTo(0, document.body.scrollHeight);
-    });
-    commentsSection.appendChild(form);
-
-    contentEl.appendChild(commentsSection);
-  }
-
-  // === Adaptation du formulaire d'ajout d'article pour enregistrer sur Firestore ===
-  function renderNewArticle() {
-    contentEl.innerHTML = `
-      <h2>Publier un nouvel article</h2>
-      <form id="article-form" aria-label="Formulaire de publication d'article">
-        <label for="title">Titre :</label>
-        <input type="text" id="title" name="title" required minlength="3" maxlength="100" placeholder="Titre de l'article" />
-        <label for="category">Catégorie :</label>
-        <select id="category" name="category" required>
-          <option value="" disabled selected>Choisissez une catégorie</option>
-          <option>Général</option>
-          <option>Éducation</option>
-          <option>Technologie</option>
-          <option>Santé</option>
-          <option>Culture</option>
-          <option>Politique</option>
-        </select>
-        <label for="author">Auteur :</label>
-        <input type="text" id="author" name="author" required minlength="2" maxlength="50" placeholder="Votre nom ou pseudo" />
-        <label for="content-textarea">Contenu :</label>
-        <textarea id="content-textarea" name="content" required minlength="10" maxlength="5000" placeholder="Écrivez votre article ici..."></textarea>
-        <br><br>
-        <button class="primary" type="submit">Publier</button>
-      </form>
-    `;
-    const form = document.getElementById('article-form');
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const title = form.title.value.trim();
-      const category = form.category.value;
-      const author = form.author.value.trim();
-      const content = form.content.value.trim();
-      if (!title || !category || !author || !content) {
-        alert('Merci de remplir tous les champs.');
-        return;
-      }
-      const newArticle = {
-        title,
-        category,
-        author,
-        content,
-        date: new Date().toISOString()
-      };
-      await addArticle(newArticle);
-      alert('Article publié avec succès !');
-      await fetchArticles(); // mise à jour globale
-      searchInput.value = '';
-    });
-  }
-
-  // === Au démarrage, on charge les articles depuis Firestore ===
-  fetchArticles();
 
 </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Blues - Le Blog d'Actualités</title>
+  <title>Blues</title>
   <style>
     /* === Reset & base === */
     *, *::before, *::after {
@@ -539,7 +396,7 @@
   </div>
 
   <footer class="footer" role="contentinfo">
-    <p>© 2025 Blues — Blog d'actualités &amp; savoir</p>
+    <p>© 2025 Blues &amp; savoir</p>
     <p>
       <a href="#" id="footer-legal">Mentions légales</a> |
       <a href="#" id="footer-privacy">Politique de confidentialité</a>
